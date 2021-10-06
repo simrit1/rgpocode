@@ -7,10 +7,11 @@ import sqlite3
 import zipfile
 import subprocess
 
-#countries = {}
 conn = None
 BASE_URL = 'http://download.geonames.org/export/'
 FILE_ONE = 'allCountries'
+FILE_TWO = "countryInfo.txt"
+LOCATION = ''
 
 if sys.version_info[0] == 3:
 	import urllib.request
@@ -39,11 +40,12 @@ def creategpotable():
         )"""
 		cursor = conn.cursor()
 		cursor.execute(sql)
+		conn.commit()
+		status = 'table created'
 	except sqlite3.Error as e:
 		if not 'table already exists' in str(e):
 			status='Error occured in creating table gpotable: '+ str(e)
-	
-	print(status)
+			print(status)
 	return(status)
 
 
@@ -70,8 +72,6 @@ def downloadfile(filename, savetofile):
 	global BASE_URL
 	global LOCATION
 	savetofile = os.path.join(LOCATION, savetofile)
-	fileurl = BASE_URL + filename
-	print(BASE_URL + filename)
 	if sys.version_info[0] == 3:
 		try:
 			urllib.request.urlretrieve(BASE_URL + filename, savetofile)
@@ -97,11 +97,13 @@ def do_check():
 
 	if platform == "win32":
 		if not os.path.exists(os.path.join(LOCATION, 'sqlite3.exe')):
+			status='sqlite3.exe not found.'
+			return(status)
+		connectdatabase()
+	else:
+		if not os.path.exists(os.path.join(LOCATION, 'sqlite3')):
 			status='sqlite3 not found.'
 			return(status)
-		else:
-			connectdatabase()
-	else:
 		connectdatabase()
 
 	
@@ -143,7 +145,7 @@ def do_check():
 			f.close()
 
 		#Enclosing location of geonamesdata.csv file in quotes allows for spaces in file path
-		NL = '"' + LOCATION + "gponamesdata.csv" +'"' 
+		NL = '"' + LOCATION  + '/' + "gponamesdata.csv" + '"'
 		
 		subprocess.call([
 		os.path.join(LOCATION, "sqlite3"), 
@@ -155,11 +157,96 @@ def do_check():
 	status = 'Start reverse postalcode'
 	return(status)
 
+def user_cwd(LOCATIONDICT):
+	global LOCATION
+	try:
+		LOCATION = os.path.dirname(LOCATIONDICT['__file__'])
+	except KeyError:
+		#LOCATION is set to home path when start_rgpocode is run from interactive shell
+		LOCATION = expanduser("~") 
+	
+	if platform == "win32":
+		LOCATION = LOCATION + '\\'
+		LOCATION = LOCATION.replace('\\', '\\\\')
+
+	if len(LOCATION) == 0:			
+		LOCATION = os.getcwd()		#LOCATION is set to cwd when rgpocode.py is main
+	return(LOCATION)
+
+def country_code():
+	global LOCATION
+	country_code_dictionary={}
+
+	if not os.path.exists(os.path.join(LOCATION, 'countries.tsv')):
+		status = downloadfile(FILE_TWO, 'countries.tsv')
+		if 'Error downloading file: ' in status:
+			return(status)
+	try:
+		with open(os.path.join(LOCATION, 'countries.tsv'), 'r', encoding="utf8") as source:
+			reader = csv.reader(source, delimiter='\t')
+			for row in reader:
+				code = row[0]
+				if not '#' in code:
+					name = row[4]
+					country_code_dictionary[code] = name
+	except FileNotFoundError:
+		status = 'File not found countries.tsv'
+		return(status)
+	return(country_code_dictionary)
+
+def filter_rgpocode(codelist):
+	LOCATIONDICT = sys._getframe(1).f_globals
+	LOCATION = user_cwd(LOCATIONDICT)
+	country_code_dictionary = country_code()
+
+	if country_code_dictionary == 'File not found countries.tsv':
+		status = 'File not found countries.tsv'
+		return(status)
+
+	connectdatabase()
+	dictionary_keys = country_code_dictionary.keys()
+
+	for key in range(len(codelist)):
+		if codelist[key] not in dictionary_keys:
+			status = 'Invalid country code: ' + str(codelist[key])
+			return(status)
+
+	code="'"
+	delim = "',"
+	for i in range(len(codelist)):
+		code = code + "'" + str(codelist[i]) + delim
+	
+	code = code[1:-1]
+
+	sql="""DELETE
+	FROM gpotable
+	WHERE gpo_countrycode NOT IN (""" + code +");"
+	
+	try: 
+		cursor = conn.execute(sql)
+		conn.commit()
+		conn.execute("vacuum")	#This is to reduce file size of geo.db from ~600MB
+		status = 'Database filtered: '
+	except sqlite3.Error as e:
+		status = 'Error in filter_rgpocode delete ' + str(e)
+		
+	if status == 'Database filtered: ':
+		sql="SELECT changes();"
+		try: 
+			cursor = conn.execute(sql)
+			count = cursor.fetchone()
+			status = status + 'Deleted ' + str(count[0]) + ' rows.'
+		except sqlite3.Error as e:
+		  	status = 'Error in filter_rgpocode changes() ' + str(e)
+		
+	cleanup()
+	return(status)
+
 
 def get_location(userinput):
 	global conn
 	locationlist=[]
-	geolocation = []
+	gpolocation = []
 		
 	sql = """SELECT
 	rowid,
@@ -179,24 +266,20 @@ def get_location(userinput):
 	  	return(status)
 	
 	for row in rows:
-		geolocation.append(dict(place_name=row[2],
+		gpolocation.append(dict(place_name=row[2],
 								admin1=row[3],
 								admin2=row[4],
 								admin3=row[5],
 								country_code=row[1]
 	            				)
 							)
-	return(geolocation)
+	return(gpolocation)
 	
 
 def start_rgpocode(userinput):
-	global LOCATION
 	LOCATIONDICT = sys._getframe(1).f_globals
-	try:
-		LOCATION = os.path.dirname(LOCATIONDICT['__file__'])
-	except KeyError:
-		LOCATION = expanduser("~")
-	
+	LOCATION = user_cwd(LOCATIONDICT)
+
 	if platform == "win32":
 		LOCATION = LOCATION + '\\'
 		LOCATION = LOCATION.replace('\\', '\\\\')
