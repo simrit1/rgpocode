@@ -6,20 +6,20 @@ rgpocode accepts a postal code and returns a list containing the name of:
 *	A place
 *	First administrative unit
 *	Second administrative unit
-*   Third administrative unit
+*    Third administrative unit
 *	ISO country code
 
-rgpocode uses data from [geonames.org](https://www.geonames.org/)
+Credits: rgpocode uses data sourced from https://www.geonames.org/ and is used under a CC 4.0 license [(link to Creative Commons 4.0)](https://creativecommons.org/licenses/by/4.0/)
 
 ##	Install
 
      pip install r-gpocode
      
-     >>> location = start_rgpocode(30313)
+     >>> location = start_rgpocode(560001)
      
      >>> print(location)
      
-     [{'place_name': 'Atlanta', 'admin1': 'Georgia', 'admin2': 'Fulton', 'admin3': '', 'country_code': 'US'}]
+     [... {'place_name': 'Mahatma Gandhi Road', 'admin1': 'Karnataka', 'admin2': 'Bengaluru', 'admin3': 'Bangalore North', 'country_code': 'IN'}, ...]
 
 ## Requirements
 
